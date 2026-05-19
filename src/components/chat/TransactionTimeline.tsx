@@ -175,12 +175,13 @@ export const TransactionTimeline = ({ transaction }: TransactionTimelineProps) =
       {/* Steps */}
       <div className="px-5 pt-5 pb-2">
         {transaction.steps.map((step, i) => (
-          <StepRow
-            key={step.id}
-            step={step}
-            index={i}
-            isLast={i === transaction.steps.length - 1}
-          />
+          <div key={step.id}>
+            <StepRow
+              step={step}
+              index={i}
+              isLast={i === transaction.steps.length - 1}
+            />
+          </div>
         ))}
       </div>
 

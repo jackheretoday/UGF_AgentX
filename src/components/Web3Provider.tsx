@@ -1,8 +1,23 @@
+// WalletConnect Project ID: get a free one at https://cloud.walletconnect.com
+// Create project → copy Project ID → paste in .env.local as VITE_WALLETCONNECT_PROJECT_ID
+
 import React, { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConnectKitProvider, getDefaultConfig } from 'connectkit';
 import { createConfig, WagmiProvider, http } from 'wagmi';
 import { baseSepolia } from 'wagmi/chains';
+import { WalletAuthSync } from './WalletAuthSync';
+
+/** Matches the browser origin in dev; set VITE_APP_URL in production. */
+function getAppUrl(): string {
+  if (import.meta.env.VITE_APP_URL) {
+    return import.meta.env.VITE_APP_URL;
+  }
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return 'http://localhost:3000';
+}
 
 const config = createConfig(
   getDefaultConfig({
@@ -13,14 +28,14 @@ const config = createConfig(
     },
 
     // Required API Keys
-    walletConnectProjectId: 'test',
+    walletConnectProjectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? '',
 
     // Required App Info
     appName: 'UGF AgentX',
 
     // Optional App Info
     appDescription: 'AI Blockchain Assistant',
-    appUrl: 'https://ugf-agentx.ai',
+    appUrl: getAppUrl(),
     appIcon: 'https://family.co/logo.png', // Replace with your app's icon
   }),
 );
@@ -59,6 +74,7 @@ export const Web3Provider = ({ children }: { children: React.ReactNode }) => {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <ConnectKitProvider theme="midnight">
+          <WalletAuthSync />
           {children}
         </ConnectKitProvider>
       </QueryClientProvider>
