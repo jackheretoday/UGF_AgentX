@@ -1,9 +1,7 @@
 
-# Run and deploy
+# UGF Framework based AI Chatbot 
 
-This contains everything you need to run your app locally.
-
-View the app: https://ai.studio/apps/0b4a453d-1e46-4f91-9d50-0152eeb233f9
+Mock USD instead of ETH, save gas save time.
 
 ## Run Locally
 
