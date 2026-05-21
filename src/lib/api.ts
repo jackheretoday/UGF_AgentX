@@ -66,6 +66,10 @@ export interface ChatResponse {
     blockNumber: number;
   };
   sessionId?: string;
+  txHash?: string | null;
+  blockNumber?: number | null;
+  confirmedAt?: string | null;
+  executionStatus?: 'success' | 'failed' | 'skipped';
 }
 
 interface ChatResponseV2 {
@@ -81,6 +85,10 @@ interface ChatResponseV2 {
   transactionSteps?: ChatTransactionStep[];
   sessionId?: string;
   transactionId?: string;
+  txHash?: string | null;
+  blockNumber?: number | null;
+  confirmedAt?: string | null;
+  executionStatus?: 'success' | 'failed' | 'skipped';
 }
 
 type ApiFetchOptions = RequestInit & {
@@ -144,6 +152,10 @@ function toLegacyResponse(payload: unknown): ChatResponse {
     tokenURI: v2.tokenURI ?? null,
     recipient: v2.recipient ?? null,
     amount: v2.amount ?? null,
+    txHash: v2.txHash ?? null,
+    blockNumber: v2.blockNumber ?? null,
+    confirmedAt: v2.confirmedAt ?? null,
+    executionStatus: v2.executionStatus ?? 'skipped',
     metadata: {
       intent: mapIntentToLegacy(v2.intent),
       subject: v2.recipient ?? 'User',
@@ -152,8 +164,8 @@ function toLegacyResponse(payload: unknown): ChatResponse {
       confidence: v2.confidence === 'rule-based' ? 1 : v2.confidence === 'GeminiAI' ? 0.85 : 0.5,
       gasUsed: mockUsd !== undefined ? String(mockUsd) : '',
       mockUsdCost: mockUsd !== undefined ? String(mockUsd) : '',
-      txHash: '',
-      blockNumber: 0,
+      txHash: v2.txHash || '',
+      blockNumber: v2.blockNumber || 0,
     },
   };
 }

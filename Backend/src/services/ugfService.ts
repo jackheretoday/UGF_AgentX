@@ -29,7 +29,27 @@ function getClient(): UGFClient {
   return cachedClient;
 }
 
-function getSigner(userWallet: string): Wallet {
+/**
+ * Returns the Ethereum address derived from UGF_SIGNER_PRIVATE_KEY.
+ * Throws if no private key is configured.
+ */
+export function getSignerAddress(): string {
+  const privateKey =
+    process.env.UGF_SIGNER_PRIVATE_KEY ||
+    process.env.UGF_PRIVATE_KEY ||
+    process.env.PRIVATE_KEY;
+
+  if (!privateKey) {
+    throw new Error('Missing UGF signer private key');
+  }
+
+  const provider = new JsonRpcProvider(
+    process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org'
+  );
+  return new Wallet(privateKey, provider).address;
+}
+
+function getSigner(userWallet?: string): Wallet {
   const privateKey =
     process.env.UGF_SIGNER_PRIVATE_KEY ||
     process.env.UGF_PRIVATE_KEY ||
@@ -42,8 +62,10 @@ function getSigner(userWallet: string): Wallet {
   const provider = new JsonRpcProvider(BASE_SEPOLIA_RPC_URL);
   const signer = new Wallet(privateKey, provider);
 
+  // In server-pays-gas mode the server signer address won't match the user's
+  // wallet — that is expected and intentional. Log a debug note but never throw.
   if (userWallet && signer.address.toLowerCase() !== userWallet.toLowerCase()) {
-    throw new Error('Signer address does not match user wallet');
+    logger.info(`UGF signer (${signer.address}) acting on behalf of user (${userWallet})`);
   }
 
   return signer;
@@ -169,6 +191,7 @@ export async function executeUgfFlow(payload: UgfFlowPayload): Promise<UgfFlowRe
   let signer: Wallet;
 
   try {
+    // Pass undefined so getSigner uses the private key without a wallet-match check
     signer = getSigner(payload.from);
   } catch (error) {
     logger.error('UGF signer initialization failed', error);

@@ -261,56 +261,65 @@ export const useStore = create<AppState>((set, get) => ({
 
       if (txSteps.length > 0) {
         const startedAt = Date.now();
+        const hasRealTx = !!chatResponse.txHash && chatResponse.executionStatus === 'success';
+
         activeTx = {
           id: chatResponse.messageId,
           intent,
           type: formatTransactionType(intent, recipient),
-          status: 'active',
+          status: hasRealTx ? 'completed' : 'active',
           timestamp: startedAt,
           startedAt,
           gasEstimate: chatResponse.gasEstimate ?? null,
           steps: txSteps.map((s) => ({
             id: s.id,
             label: s.label,
-            status: 'pending' as const,
+            status: hasRealTx ? 'completed' as const : 'pending' as const,
             detail: s.detail,
-            txHash: s.txHash,
+            txHash: hasRealTx ? (chatResponse.txHash ?? undefined) : s.txHash,
           })),
         };
         setActiveTransaction(activeTx);
 
-        const { advanceTransactionStep } = get();
+        if (hasRealTx) {
+          void get().loadTransactionHistory();
+          window.setTimeout(() => {
+            setActiveTransaction(null);
+          }, TIMELINE_CLEAR_DELAY_MS);
+        } else {
+          const { advanceTransactionStep } = get();
 
-        // First step active immediately
-        advanceTransactionStep(txSteps[0].id, 'active');
+          // First step active immediately
+          advanceTransactionStep(txSteps[0].id, 'active');
 
-        // Simulate step progression (demo until UGF SDK drives real updates)
-        for (let i = 0; i < txSteps.length; i++) {
-          const stepId = txSteps[i].id;
-          const timeout = window.setTimeout(() => {
-            advanceTransactionStep(stepId, 'completed');
+          // Simulate step progression (demo until UGF SDK drives real updates)
+          for (let i = 0; i < txSteps.length; i++) {
+            const stepId = txSteps[i].id;
+            const timeout = window.setTimeout(() => {
+              advanceTransactionStep(stepId, 'completed');
 
-            if (i === txSteps.length - 1) {
-              set((state) => {
-                if (!state.activeTransaction) return state;
-                const finalTx: TransactionState = {
-                  ...state.activeTransaction,
-                  status: 'completed',
-                  steps: state.activeTransaction.steps.map((s) => ({
-                    ...s,
-                    status: 'completed' as const,
-                  })),
-                };
-                return { activeTransaction: finalTx };
-              });
+              if (i === txSteps.length - 1) {
+                set((state) => {
+                  if (!state.activeTransaction) return state;
+                  const finalTx: TransactionState = {
+                    ...state.activeTransaction,
+                    status: 'completed',
+                    steps: state.activeTransaction.steps.map((s) => ({
+                      ...s,
+                      status: 'completed' as const,
+                    })),
+                  };
+                  return { activeTransaction: finalTx };
+                });
 
-              void get().loadTransactionHistory();
+                void get().loadTransactionHistory();
 
-              window.setTimeout(() => {
-                setActiveTransaction(null);
-              }, TIMELINE_CLEAR_DELAY_MS);
-            }
-          }, STEP_SIMULATION_DELAY_MS * (i + 1));
+                window.setTimeout(() => {
+                  setActiveTransaction(null);
+                }, TIMELINE_CLEAR_DELAY_MS);
+              }
+            }, STEP_SIMULATION_DELAY_MS * (i + 1));
+          }
         }
       }
 

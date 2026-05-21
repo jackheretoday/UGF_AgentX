@@ -25,7 +25,22 @@ export const config = {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
+
+  // UGF on-chain execution
+  ugfApiKey: process.env.UGF_API_KEY || '',
+  ugfSignerPrivateKey:
+    process.env.UGF_SIGNER_PRIVATE_KEY ||
+    process.env.UGF_PRIVATE_KEY ||
+    process.env.PRIVATE_KEY ||
+    '',
+  nftContractAddress: process.env.NFT_CONTRACT_ADDRESS || '',
+  baseSepoliaRpcUrl: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org',
 };
+
+/** Returns true if all required UGF env vars are configured. */
+export function isUgfConfigured(): boolean {
+  return !!(config.ugfSignerPrivateKey && config.nftContractAddress);
+}
 
 // Validate required env vars
 export function validateConfig(): void {
@@ -39,5 +54,10 @@ export function validateConfig(): void {
   if (missing.length > 0) {
     console.warn(`⚠️  Missing environment variables: ${missing.join(', ')}`);
     console.warn('ℹ️  Copy .env.example to .env and fill in the values');
+  }
+
+  if (!isUgfConfigured()) {
+    console.warn('⚠️  UGF on-chain execution is disabled (UGF_SIGNER_PRIVATE_KEY or NFT_CONTRACT_ADDRESS missing)');
+    console.warn('ℹ️  Chat will still work — transactions will be saved as pending in DB only');
   }
 }
