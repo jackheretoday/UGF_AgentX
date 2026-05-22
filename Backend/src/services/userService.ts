@@ -61,3 +61,34 @@ export async function getUserIdByWallet(walletAddress: string): Promise<string |
 
   return data?.id ?? null;
 }
+
+export async function ensureGoogleUser(walletAddress: string, username: string): Promise<DbUser> {
+  const normalized = normalizeWalletAddress(walletAddress);
+
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .upsert(
+      {
+        wallet_address: normalized,
+        username,
+        last_active: new Date().toISOString(),
+        auth_type: 'google',
+      },
+      { onConflict: 'wallet_address' }
+    )
+    .select(
+      'id, wallet_address, username, auth_type, mockusd_balance, eth_balance, total_transactions, total_nfts, last_active'
+    )
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Failed to resolve Google user');
+  }
+
+  return data as DbUser;
+}
+

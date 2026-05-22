@@ -73,7 +73,14 @@ export const Web3Provider = ({ children }: { children: React.ReactNode }) => {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <ConnectKitProvider theme="midnight">
+        <ConnectKitProvider
+          theme="midnight"
+          customTheme={{
+            '--ck-qr-background': '#ffffff',
+            '--ck-qr-dot-color': '#000000',
+            '--ck-qr-border-color': '#ffffff',
+          }}
+        >
           <WalletAuthSync />
           {children}
         </ConnectKitProvider>

@@ -55,6 +55,10 @@ export function WalletAuthSync() {
   }, [setWalletStatus, clearTransactionHistory, setChatSessions]);
 
   useEffect(() => {
+    if (wallet.authType === 'google') {
+      return;
+    }
+
     if (!isConnected || !address) {
       if (lastAddress.current) {
         clearAuthSession();

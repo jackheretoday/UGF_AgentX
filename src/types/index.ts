@@ -68,4 +68,7 @@ export interface WalletState {
   ethBalance: string;
   usdBalance: number;
   nfts: NFT[];
+  authType?: 'wallet' | 'google';
+  email?: string;
+  profilePicture?: string;
 }

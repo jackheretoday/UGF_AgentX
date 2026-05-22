@@ -9,7 +9,7 @@ interface SuggestedPromptsProps {
 }
 
 const prompts = [
-  { text: 'Mint badge for Jay', icon: ShieldCheck, color: 'text-violet-400 group-hover:text-violet-300' },
+  { text: "Let's mint badge for you!", icon: ShieldCheck, color: 'text-violet-400 group-hover:text-violet-300' },
   { text: 'Claim certificate', icon: Cpu, color: 'text-blue-400 group-hover:text-blue-300' },
   { text: 'Donate 5 USD', icon: Wallet, color: 'text-emerald-400 group-hover:text-emerald-300' },
   { text: 'Swap ETH to USDC', icon: ArrowLeftRight, color: 'text-yellow-400 group-hover:text-yellow-300' },

@@ -114,6 +114,8 @@ type JwtClaims = {
   walletAddress?: string;
   userId?: string;
   exp?: number;
+  authType?: 'wallet' | 'google';
+  email?: string;
 };
 
 function createWelcomeMessage(): Message {
@@ -165,6 +167,8 @@ function buildInitialWallet(): WalletState {
       isConnected: true,
       address: decoded.walletAddress,
       token,
+      authType: decoded.authType || 'wallet',
+      email: decoded.email,
     };
   } catch {
     return base;

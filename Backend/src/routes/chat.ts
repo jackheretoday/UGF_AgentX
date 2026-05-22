@@ -253,16 +253,32 @@ async function insertChatMessage(payload: {
   sender: 'user' | 'assistant';
   message: string;
   messageType?: string;
-}): Promise<void> {
-  const { error } = await supabaseAdmin.from('chat_messages').insert({
-    session_id: payload.sessionId,
-    sender: payload.sender,
-    message: payload.message,
-    message_type: payload.messageType ?? 'normal',
-  });
+}): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from('chat_messages')
+    .insert({
+      session_id: payload.sessionId,
+      sender: payload.sender,
+      message: payload.message,
+      message_type: payload.messageType ?? 'normal',
+    })
+    .select('id')
+    .single();
 
   if (error) {
     throw new Error(error.message);
+  }
+  return data?.id ?? null;
+}
+
+async function patchChatMessage(messageId: string, newMessage: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('chat_messages')
+    .update({ message: newMessage })
+    .eq('id', messageId);
+
+  if (error) {
+    logger.warn('Failed to patch chat message', { messageId, error: error.message });
   }
 }
 
@@ -388,7 +404,7 @@ type UgfExecutionResult = {
   confirmedAt: string | null;
   quoteId: string | null;
   gasFeeUSD: number | null;
-  status: 'success' | 'failed' | 'skipped';
+  status: 'success' | 'failed' | 'skipped' | 'pending';
   failureStep?: string;
   failureMessage?: string;
 };
@@ -651,6 +667,9 @@ async function getGeminiIntent(message: string): Promise<{
 function buildReply(intent: Intent, recipient: string | null, amount: number | null): string {
   switch (intent) {
     case 'MINT_BADGE':
+      if (recipient && recipient.toLowerCase() === 'jay') {
+        return "Let's mint badge for you!";
+      }
       return recipient
         ? `Minting a Blockchain Innovator Badge for ${recipient}...`
         : 'Minting a Blockchain Innovator Badge...';
@@ -699,26 +718,26 @@ function buildTokenURI(intent: Intent, recipient: string | null): string | null 
   const metadata =
     intent === 'MINT_BADGE'
       ? {
-          name: `UGF AgentX Badge — ${displayRecipient}`,
-          description: 'Blockchain Innovator Badge minted via UGF AgentX on Base Sepolia.',
-          image: `data:image/svg+xml;base64,${svgBase64}`,
-          attributes: [
-            { trait_type: 'Type', value: 'Badge' },
-            { trait_type: 'Recipient', value: displayRecipient },
-            { trait_type: 'Issued By', value: 'UGF AgentX' },
-            { trait_type: 'Network', value: 'Base Sepolia' },
-          ],
-        }
+        name: `UGF AgentX Badge — ${displayRecipient}`,
+        description: 'Blockchain Innovator Badge minted via UGF AgentX on Base Sepolia.',
+        image: `data:image/svg+xml;base64,${svgBase64}`,
+        attributes: [
+          { trait_type: 'Type', value: 'Badge' },
+          { trait_type: 'Recipient', value: displayRecipient },
+          { trait_type: 'Issued By', value: 'UGF AgentX' },
+          { trait_type: 'Network', value: 'Base Sepolia' },
+        ],
+      }
       : {
-          name: 'UGF AgentX Certificate',
-          description: 'Workshop completion certificate issued on Base Sepolia.',
-          image: `data:image/svg+xml;base64,${svgBase64}`,
-          attributes: [
-            { trait_type: 'Type', value: 'Certificate' },
-            { trait_type: 'Issued By', value: 'UGF AgentX' },
-            { trait_type: 'Network', value: 'Base Sepolia' },
-          ],
-        };
+        name: 'UGF AgentX Certificate',
+        description: 'Workshop completion certificate issued on Base Sepolia.',
+        image: `data:image/svg+xml;base64,${svgBase64}`,
+        attributes: [
+          { trait_type: 'Type', value: 'Certificate' },
+          { trait_type: 'Issued By', value: 'UGF AgentX' },
+          { trait_type: 'Network', value: 'Base Sepolia' },
+        ],
+      };
 
   const encoded = Buffer.from(JSON.stringify(metadata)).toString('base64');
   return `data:application/json;base64,${encoded}`;
@@ -859,8 +878,6 @@ router.post(
       // ── UGF Auto-Execution ──────────────────────────────────────────────────
       // Attempt on-chain execution immediately after DB insert.
       // Runs only when UGF_SIGNER_PRIVATE_KEY + NFT_CONTRACT_ADDRESS are set.
-      // On success: patches the transaction row with real tx data.
-      // On failure / missing config: leaves the row as 'pending' (graceful degradation).
       let onChainResult: UgfExecutionResult | null = null;
 
       const isBlockchainIntent =
@@ -870,58 +887,101 @@ router.post(
         intent === 'SEND_REWARD';
 
       if (isBlockchainIntent && transactionId) {
-        logger.info(`Auto-executing UGF flow for intent=${intent}`, { transactionId });
-
-        onChainResult = await tryExecuteOnChain({
-          intent,
-          userWallet: walletAddress,
-          recipient,
-          amount,
-          tokenURI,
-        });
-
-        if (onChainResult.status !== 'skipped') {
-          await patchTransaction(transactionId, {
-            status: onChainResult.status,
-            txHash: onChainResult.txHash,
-            ugfQuoteId: onChainResult.quoteId,
-            gasFeesMockUsd: onChainResult.gasFeeUSD ?? gasEstimate.mockUSD,
-            blockNumber: onChainResult.blockNumber,
-            confirmedAt: onChainResult.confirmedAt,
-            contractAddress: config.nftContractAddress || null,
-          });
-
-          if (
-            onChainResult.status === 'success' &&
-            onChainResult.txHash &&
-            (intent === 'MINT_BADGE' || intent === 'CLAIM_CERT')
-          ) {
-            await patchMintedBadgeTxHash(transactionId, onChainResult.txHash);
-          }
-
-          if (onChainResult.status === 'success') {
-            logger.info(`UGF execution succeeded`, {
-              transactionId,
-              txHash: onChainResult.txHash,
-              blockNumber: onChainResult.blockNumber,
-            });
-          } else {
-            logger.warn(`UGF execution failed at step: ${onChainResult.failureStep}`, {
-              transactionId,
-              message: onChainResult.failureMessage,
-            });
-          }
+        if (!isUgfConfigured()) {
+          logger.info('UGF not configured — skipping on-chain execution');
+          onChainResult = {
+            txHash: null,
+            blockNumber: null,
+            confirmedAt: null,
+            quoteId: null,
+            gasFeeUSD: null,
+            status: 'skipped',
+          };
+        } else {
+          logger.info(`Auto-executing UGF flow for intent=${intent} (async)`, { transactionId });
+          onChainResult = {
+            txHash: null,
+            blockNumber: null,
+            confirmedAt: null,
+            quoteId: null,
+            gasFeeUSD: null,
+            status: 'pending',
+          };
         }
       }
-      // ────────────────────────────────────────────────────────────────────────
 
-      // Build the assistant reply — append tx confirmation if successful
+      // Build the assistant reply
       let finalReply = reply;
       if (onChainResult?.status === 'success' && onChainResult.txHash) {
         finalReply = `${reply}\n\n✅ Transaction confirmed on Base Sepolia!\nTx Hash: \`${onChainResult.txHash}\``;
       } else if (onChainResult?.status === 'failed') {
         finalReply = `${reply}\n\n⚠️ On-chain execution failed at step: **${onChainResult.failureStep}**. Your request was saved and will retry when conditions allow.`;
       }
+
+      // Persist assistant reply after processing.
+      const assistantMessageId = await insertChatMessage({
+        sessionId: effectiveSessionId,
+        sender: 'assistant',
+        message: finalReply,
+      });
+
+      // ── UGF Asynchronous Auto-Execution ──────────────────────────────────────
+      if (isBlockchainIntent && transactionId && isUgfConfigured()) {
+        (async () => {
+          try {
+            const backgroundResult = await tryExecuteOnChain({
+              intent,
+              userWallet: walletAddress,
+              recipient,
+              amount,
+              tokenURI,
+            });
+
+            if (backgroundResult.status !== 'skipped') {
+              await patchTransaction(transactionId, {
+                status: backgroundResult.status,
+                txHash: backgroundResult.txHash,
+                ugfQuoteId: backgroundResult.quoteId,
+                gasFeesMockUsd: backgroundResult.gasFeeUSD ?? gasEstimate.mockUSD,
+                blockNumber: backgroundResult.blockNumber,
+                confirmedAt: backgroundResult.confirmedAt,
+                contractAddress: config.nftContractAddress || null,
+              });
+
+              if (
+                backgroundResult.status === 'success' &&
+                backgroundResult.txHash &&
+                (intent === 'MINT_BADGE' || intent === 'CLAIM_CERT')
+              ) {
+                await patchMintedBadgeTxHash(transactionId, backgroundResult.txHash);
+              }
+
+              let asyncReply = reply;
+              if (backgroundResult.status === 'success' && backgroundResult.txHash) {
+                asyncReply = `${reply}\n\n✅ Transaction confirmed on Base Sepolia!\nTx Hash: \`${backgroundResult.txHash}\``;
+                logger.info(`UGF execution succeeded asynchronously`, {
+                  transactionId,
+                  txHash: backgroundResult.txHash,
+                  blockNumber: backgroundResult.blockNumber,
+                });
+              } else if (backgroundResult.status === 'failed') {
+                asyncReply = `${reply}\n\n⚠️ On-chain execution failed at step: **${backgroundResult.failureStep}**. Your request was saved and will retry when conditions allow.`;
+                logger.warn(`UGF execution failed asynchronously at step: ${backgroundResult.failureStep}`, {
+                  transactionId,
+                  message: backgroundResult.failureMessage,
+                });
+              }
+
+              if (assistantMessageId) {
+                await patchChatMessage(assistantMessageId, asyncReply);
+              }
+            }
+          } catch (err) {
+            logger.error('Unhandled background UGF execution error', { transactionId, err });
+          }
+        })();
+      }
+      // ────────────────────────────────────────────────────────────────────────
 
       const response = {
         success: true,
@@ -934,11 +994,11 @@ router.post(
         gasEstimate:
           intent !== 'UNKNOWN'
             ? {
-                mockUSD: onChainResult?.gasFeeUSD ?? gasEstimate.mockUSD,
-                currency: 'Mock USD',
-                breakdown: gasEstimate.breakdown,
-                note: gasEstimate.note,
-              }
+              mockUSD: onChainResult?.gasFeeUSD ?? gasEstimate.mockUSD,
+              currency: 'Mock USD',
+              breakdown: gasEstimate.breakdown,
+              note: gasEstimate.note,
+            }
             : null,
         aiSteps,
         transactionSteps,
@@ -950,13 +1010,6 @@ router.post(
         confirmedAt: onChainResult?.confirmedAt ?? null,
         executionStatus: onChainResult?.status ?? 'skipped',
       };
-
-      // Persist assistant reply after processing.
-      await insertChatMessage({
-        sessionId: effectiveSessionId,
-        sender: 'assistant',
-        message: finalReply,
-      });
 
       res.json(response);
     } catch (error) {

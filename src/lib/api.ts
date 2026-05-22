@@ -226,6 +226,18 @@ export async function verifyAuthSignature(
   });
 }
 
+export async function loginWithGoogle(
+  credential?: string,
+  mockPayload?: { sub?: string; email?: string; name?: string }
+): Promise<AuthVerifyResponse> {
+  return apiFetch<AuthVerifyResponse>('/api/auth/google', {
+    method: 'POST',
+    body: JSON.stringify({ credential, mockPayload }),
+    skipAuth: true,
+  });
+}
+
+
 export async function submitChatMessage(req: ChatRequest): Promise<ChatResponse> {
   const payload = await apiFetch<unknown>('/api/chat', {
     method: 'POST',
