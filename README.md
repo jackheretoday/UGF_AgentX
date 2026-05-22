@@ -18,4 +18,4 @@ MetaMask account connection required.
 Google based auth to verify user then wallet connect.
 
 Base Sepolia works well with MetaMask. 
-Otheer option for wallet will be added soon.
+Other option for wallet will be added soon.
