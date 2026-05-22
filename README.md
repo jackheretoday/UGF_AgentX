@@ -13,3 +13,6 @@ Mock USD instead of ETH, save gas save time.
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+MetaMask account connection required. 
+Google based auth to verify user then wallet connect.
