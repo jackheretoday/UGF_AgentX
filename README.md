@@ -17,4 +17,5 @@ Mock USD instead of ETH, save gas save time.
 MetaMask account connection required. 
 Google based auth to verify user then wallet connect.
 
-Base Sepolia works well with MetaMask
+Base Sepolia works well with MetaMask. 
+Otheer option for wallet will be added soon.
