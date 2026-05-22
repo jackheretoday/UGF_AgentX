@@ -7,8 +7,14 @@ import { authMiddleware, assertWalletAccess } from '../middleware/authMiddleware
 import { getStepsForIntent } from '../services/responseEngine.js';
 import { logger } from '../utils/logger.js';
 import { supabaseAdmin } from '../config/supabase.js';
-import { executeUgfFlow, UgfStepError, getSignerAddress } from '../services/ugfService.js';
-import { config, isUgfConfigured } from '../config/env.js';
+import { config, isUgfConfigured, isUgfUserPayerMode } from '../config/env.js';
+import { getChainDisplayName } from '../services/explorerService.js';
+import {
+  prefetchLiveGasQuote,
+  prepareUserWalletSettlement,
+  runOnChainTransaction,
+} from '../services/transactionExecutor.js';
+import { updateTransactionLifecycle } from '../services/transactionStatusService.js';
 
 const router = Router();
 
@@ -28,10 +34,6 @@ const UNKNOWN_REPLY =
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function round4(value: number): number {
-  return Math.round(value * 10000) / 10000;
-}
 
 function formatUsd(value: number): string {
   return value
@@ -312,7 +314,7 @@ async function recordAiAction(payload: {
 async function createTransaction(payload: {
   userId: string | null;
   intent: Intent;
-  gasFeeMockUsd: number;
+  gasFeeMockUsd: number | null;
 }): Promise<string | null> {
   const actionType = mapActionType(payload.intent);
   if (!actionType) return null;
@@ -333,33 +335,6 @@ async function createTransaction(payload: {
   }
 
   return data?.id ?? null;
-}
-
-async function patchTransaction(transactionId: string, patch: {
-  status: string;
-  txHash?: string | null;
-  ugfQuoteId?: string | null;
-  gasFeesMockUsd?: number | null;
-  blockNumber?: number | null;
-  confirmedAt?: string | null;
-  contractAddress?: string | null;
-}): Promise<void> {
-  const update: Record<string, unknown> = { status: patch.status };
-  if (patch.txHash !== undefined) update.tx_hash = patch.txHash;
-  if (patch.ugfQuoteId !== undefined) update.ugf_quote_id = patch.ugfQuoteId;
-  if (patch.gasFeesMockUsd !== undefined) update.gas_fee_mockusd = patch.gasFeesMockUsd;
-  if (patch.blockNumber !== undefined) update.block_number = patch.blockNumber;
-  if (patch.confirmedAt !== undefined) update.confirmed_at = patch.confirmedAt;
-  if (patch.contractAddress !== undefined) update.contract_address = patch.contractAddress;
-
-  const { error } = await supabaseAdmin
-    .from('transactions')
-    .update(update)
-    .eq('id', transactionId);
-
-  if (error) {
-    logger.warn('Failed to patch transaction', { transactionId, error: error.message });
-  }
 }
 
 async function patchMintedBadgeTxHash(transactionId: string, txHash: string): Promise<void> {
@@ -398,116 +373,49 @@ const NFT_ABI = [
 
 const MOCK_USD_DECIMALS = 6;
 
-type UgfExecutionResult = {
-  txHash: string | null;
-  blockNumber: number | null;
-  confirmedAt: string | null;
-  quoteId: string | null;
-  gasFeeUSD: number | null;
-  status: 'success' | 'failed' | 'skipped' | 'pending';
-  failureStep?: string;
-  failureMessage?: string;
-};
-
-async function tryExecuteOnChain(options: {
+function buildCalldataForIntent(options: {
   intent: Intent;
   userWallet: string;
   recipient: string | null;
   amount: number | null;
   tokenURI: string | null;
-}): Promise<UgfExecutionResult> {
-  const skipped: UgfExecutionResult = {
-    txHash: null, blockNumber: null, confirmedAt: null,
-    quoteId: null, gasFeeUSD: null, status: 'skipped',
-  };
-
-  if (!isUgfConfigured()) {
-    logger.info('UGF not configured — skipping on-chain execution');
-    return skipped;
+}): `0x${string}` | null {
+  if (!isAddress(config.nftContractAddress)) {
+    return null;
   }
-
-  const contractAddress = config.nftContractAddress;
-  if (!isAddress(contractAddress)) {
-    logger.warn('NFT_CONTRACT_ADDRESS is invalid — skipping on-chain execution');
-    return skipped;
-  }
-
-  let calldata: `0x${string}`;
 
   try {
     if (options.intent === 'DONATE') {
       if (!options.recipient || !isAddress(options.recipient)) {
-        logger.warn('DONATE intent missing valid recipient address — skipping execution');
-        return skipped;
+        logger.warn('DONATE intent missing valid recipient address');
+        return null;
       }
       const amountUnits = parseUnits(String(options.amount ?? 0), MOCK_USD_DECIMALS);
-      calldata = encodeFunctionData({
+      return encodeFunctionData({
         abi: NFT_ABI,
         functionName: 'donate',
         args: [options.recipient as `0x${string}`, amountUnits],
       });
-    } else {
-      // MINT_BADGE, CLAIM_CERT, SEND_REWARD — all use mintBadge calldata
-      if (!options.tokenURI) {
-        logger.warn(`${options.intent} intent missing tokenURI — skipping execution`);
-        return skipped;
-      }
-      const mintTo: `0x${string}` =
-        options.recipient && isAddress(options.recipient)
-          ? (options.recipient as `0x${string}`)
-          : (options.userWallet as `0x${string}`);
-
-      calldata = encodeFunctionData({
-        abi: NFT_ABI,
-        functionName: 'mintBadge',
-        args: [mintTo, options.tokenURI],
-      });
     }
-  } catch (err) {
-    logger.warn('Failed to encode calldata for UGF execution', err);
-    return skipped;
-  }
 
-  try {
-    const result = await executeUgfFlow({
-      // Use the server signer's derived address as payer_address so UGF can
-      // debit its TYI Mock USD vault. Falls back to userWallet if key missing.
-      from: (() => {
-        try {
-          return getSignerAddress();
-        } catch {
-          return options.userWallet;
-        }
-      })(),
-      to: contractAddress,
-      data: calldata,
-      value: '0',
+    if (!options.tokenURI) {
+      logger.warn(`${options.intent} intent missing tokenURI`);
+      return null;
+    }
+
+    const mintTo: `0x${string}` =
+      options.recipient && isAddress(options.recipient)
+        ? (options.recipient as `0x${string}`)
+        : (options.userWallet as `0x${string}`);
+
+    return encodeFunctionData({
+      abi: NFT_ABI,
+      functionName: 'mintBadge',
+      args: [mintTo, options.tokenURI],
     });
-
-    return {
-      txHash: result.txHash,
-      blockNumber: result.blockNumber,
-      confirmedAt: result.confirmedAt,
-      quoteId: result.quoteId,
-      gasFeeUSD: result.estimatedGasFeeUSD,
-      status: 'success',
-    };
   } catch (err) {
-    if (err instanceof UgfStepError) {
-      const data = err.data as Record<string, unknown> | undefined;
-      return {
-        txHash: (data?.txHash as string | null) ?? null,
-        blockNumber: null,
-        confirmedAt: null,
-        quoteId: (data?.quoteId as string | null) ?? null,
-        gasFeeUSD: (data?.estimatedGasFeeUSD as number | null) ?? null,
-        status: 'failed',
-        failureStep: err.step,
-        failureMessage: err.message,
-      };
-    }
-    logger.warn('Unexpected UGF error', err);
-    return { txHash: null, blockNumber: null, confirmedAt: null, quoteId: null, gasFeeUSD: null, status: 'failed', failureMessage: String(err) };
+    logger.warn('Failed to encode calldata', err);
+    return null;
   }
 }
 
@@ -743,43 +651,6 @@ function buildTokenURI(intent: Intent, recipient: string | null): string | null 
   return `data:application/json;base64,${encoded}`;
 }
 
-function buildGasEstimate(intent: Intent, recipient: string | null, amount: number | null): {
-  mockUSD: number;
-  breakdown: string;
-  note: string;
-} {
-  let base = 0.04;
-  let extra = 0;
-  let breakdown = 'Base: $0.04';
-
-  if (intent === 'MINT_BADGE') {
-    base = 0.05;
-    extra = 0.01 * (recipient?.length ?? 0);
-    breakdown = `Base: $${formatUsd(base)} + Name fee: $${formatUsd(extra)}`;
-  } else if (intent === 'CLAIM_CERT') {
-    base = 0.04;
-    breakdown = `Base: $${formatUsd(base)}`;
-  } else if (intent === 'DONATE') {
-    base = 0.03;
-    extra = amount !== null ? amount * 0.005 : 0;
-    breakdown = `Base: $${formatUsd(base)} + 0.5%: $${formatUsd(extra)}`;
-  } else if (intent === 'SEND_REWARD') {
-    base = 0.04;
-    extra = amount !== null ? amount * 0.003 : 0;
-    breakdown = `Base: $${formatUsd(base)} + 0.3%: $${formatUsd(extra)}`;
-  }
-
-  const variance = 0.9 + Math.random() * 0.2;
-  const mockUSD = round4((base + extra) * variance);
-
-  return {
-    mockUSD,
-    breakdown,
-    note: 'Paid in Mock USD via UGF. No ETH required.',
-  };
-}
-
-
 /**
  * POST /api/chat
  * Process user message and return AI response.
@@ -847,8 +718,6 @@ router.post(
       // Generate token metadata when required.
       const tokenURI = buildTokenURI(intent, recipient);
 
-      // Calculate Mock USD gas estimate for all intents.
-      const gasEstimate = buildGasEstimate(intent, recipient, amount);
       const { aiSteps, transactionSteps } = getStepsForIntent(intent);
 
       await recordAiAction({
@@ -860,13 +729,55 @@ router.post(
         confidence,
       });
 
+      const isBlockchainIntent =
+        intent === 'MINT_BADGE' ||
+        intent === 'CLAIM_CERT' ||
+        intent === 'DONATE' ||
+        intent === 'SEND_REWARD';
+
+      const calldata =
+        isBlockchainIntent
+          ? buildCalldataForIntent({
+              intent,
+              userWallet: walletAddress,
+              recipient,
+              amount,
+              tokenURI,
+            })
+          : null;
+
+      let liveGasQuote: { gasFeeUSD: number; quoteId: string } | null = null;
+      if (calldata && isUgfConfigured()) {
+        liveGasQuote = await prefetchLiveGasQuote(
+          config.nftContractAddress,
+          calldata,
+          walletAddress
+        );
+      }
+
       const transactionId = await createTransaction({
         userId,
         intent,
-        gasFeeMockUsd: gasEstimate.mockUSD,
+        gasFeeMockUsd: liveGasQuote?.gasFeeUSD ?? null,
       });
 
-      if (intent === 'MINT_BADGE' && tokenURI && transactionId) {
+      if (transactionId && liveGasQuote) {
+        await updateTransactionLifecycle(transactionId, {
+          status: 'quoted',
+          current_step: 'quote',
+          gas_fee_mockusd: liveGasQuote.gasFeeUSD,
+          ugf_quote_id: liveGasQuote.quoteId,
+          ugf_digest: liveGasQuote.quoteId,
+          sponsor_status: 'vault_sponsor',
+          payment_coin: 'TYI_USD',
+        });
+      }
+
+      if (
+        (intent === 'MINT_BADGE' || intent === 'CLAIM_CERT') &&
+        tokenURI &&
+        transactionId
+      ) {
         await createMintedBadge({
           transactionId,
           userId,
@@ -875,113 +786,126 @@ router.post(
         });
       }
 
-      // ── UGF Auto-Execution ──────────────────────────────────────────────────
-      // Attempt on-chain execution immediately after DB insert.
-      // Runs only when UGF_SIGNER_PRIVATE_KEY + NFT_CONTRACT_ADDRESS are set.
-      let onChainResult: UgfExecutionResult | null = null;
-
-      const isBlockchainIntent =
-        intent === 'MINT_BADGE' ||
-        intent === 'CLAIM_CERT' ||
-        intent === 'DONATE' ||
-        intent === 'SEND_REWARD';
+      const ugfReady = isUgfConfigured();
+      let executionStatus:
+        | 'pending'
+        | 'awaiting_settlement'
+        | 'confirmed'
+        | 'failed'
+        | 'skipped' = 'skipped';
+      let failureReason: string | null = null;
+      let clientSettlementRequired = false;
+      let ugfPayerAddress: string | null = null;
+      let ugfQuoteForClient: Record<string, unknown> | null = null;
+      let ugfContractAddress: string | null = null;
+      let ugfCalldata: string | null = null;
 
       if (isBlockchainIntent && transactionId) {
-        if (!isUgfConfigured()) {
-          logger.info('UGF not configured — skipping on-chain execution');
-          onChainResult = {
-            txHash: null,
-            blockNumber: null,
-            confirmedAt: null,
-            quoteId: null,
-            gasFeeUSD: null,
-            status: 'skipped',
-          };
+        if (!ugfReady) {
+          failureReason =
+            'On-chain execution is not ready. Set UGF_SIGNER_PRIVATE_KEY (contract owner) and NFT_CONTRACT_ADDRESS. Fund TYI Mock USD on your connected wallet at https://universalgasframework.com/faucets.';
+          await updateTransactionLifecycle(transactionId, {
+            status: 'failed',
+            current_step: 'pending',
+            failure_reason: failureReason,
+          });
+          executionStatus = 'failed';
+          logger.warn('UGF not configured — claim/mint cannot execute on-chain');
+        } else if (!calldata) {
+          failureReason =
+            'Could not build contract calldata. Check NFT_CONTRACT_ADDRESS and request parameters (e.g. valid recipient for donations).';
+          await updateTransactionLifecycle(transactionId, {
+            status: 'failed',
+            current_step: 'pending',
+            failure_reason: failureReason,
+          });
+          executionStatus = 'failed';
+        } else if (isUgfUserPayerMode()) {
+          const prep = await prepareUserWalletSettlement({
+            transactionId,
+            userWallet: walletAddress,
+            calldata: calldata!,
+            contractAddress: config.nftContractAddress,
+            onAssistantPatch: undefined,
+          });
+          if (prep.status === 'awaiting_settlement') {
+            executionStatus = 'awaiting_settlement';
+            clientSettlementRequired = true;
+            ugfPayerAddress = prep.payerAddress ?? walletAddress;
+            ugfQuoteForClient = prep.ugfQuote ?? null;
+            ugfContractAddress = prep.ugfContractAddress ?? config.nftContractAddress;
+            ugfCalldata = prep.ugfCalldata ?? calldata ?? null;
+          } else if (prep.status === 'failed') {
+            executionStatus = 'failed';
+            failureReason = prep.failureMessage ?? 'Could not prepare UGF quote';
+          }
         } else {
-          logger.info(`Auto-executing UGF flow for intent=${intent} (async)`, { transactionId });
-          onChainResult = {
-            txHash: null,
-            blockNumber: null,
-            confirmedAt: null,
-            quoteId: null,
-            gasFeeUSD: null,
-            status: 'pending',
-          };
+          executionStatus = 'pending';
         }
       }
 
-      // Build the assistant reply
-      let finalReply = reply;
-      if (onChainResult?.status === 'success' && onChainResult.txHash) {
-        finalReply = `${reply}\n\n✅ Transaction confirmed on Base Sepolia!\nTx Hash: \`${onChainResult.txHash}\``;
-      } else if (onChainResult?.status === 'failed') {
-        finalReply = `${reply}\n\n⚠️ On-chain execution failed at step: **${onChainResult.failureStep}**. Your request was saved and will retry when conditions allow.`;
-      }
+      const finalReply =
+        executionStatus === 'awaiting_settlement'
+          ? `${reply}\n\n💳 Approve TYI Mock USD in your connected wallet to pay gas (~$${liveGasQuote?.gasFeeUSD?.toFixed(4) ?? '0'} Mock USD), then we will mint on ${getChainDisplayName()}.`
+          : executionStatus === 'pending'
+            ? `${reply}\n\n⏳ Executing on ${getChainDisplayName()} via UGF. Status updates in real time below.`
+            : failureReason
+              ? `${reply}\n\n❌ ${failureReason}`
+              : reply;
 
-      // Persist assistant reply after processing.
       const assistantMessageId = await insertChatMessage({
         sessionId: effectiveSessionId,
         sender: 'assistant',
         message: finalReply,
       });
 
-      // ── UGF Asynchronous Auto-Execution ──────────────────────────────────────
-      if (isBlockchainIntent && transactionId && isUgfConfigured()) {
-        (async () => {
+      if (
+        isBlockchainIntent &&
+        transactionId &&
+        calldata &&
+        isUgfConfigured() &&
+        !isUgfUserPayerMode() &&
+        executionStatus === 'pending'
+      ) {
+        void (async () => {
           try {
-            const backgroundResult = await tryExecuteOnChain({
-              intent,
+            const backgroundResult = await runOnChainTransaction({
+              transactionId,
               userWallet: walletAddress,
-              recipient,
-              amount,
-              tokenURI,
+              calldata,
+              contractAddress: config.nftContractAddress,
+              onAssistantPatch: assistantMessageId
+                ? async (msg) => patchChatMessage(assistantMessageId, msg)
+                : undefined,
             });
 
-            if (backgroundResult.status !== 'skipped') {
-              await patchTransaction(transactionId, {
-                status: backgroundResult.status,
-                txHash: backgroundResult.txHash,
-                ugfQuoteId: backgroundResult.quoteId,
-                gasFeesMockUsd: backgroundResult.gasFeeUSD ?? gasEstimate.mockUSD,
-                blockNumber: backgroundResult.blockNumber,
-                confirmedAt: backgroundResult.confirmedAt,
-                contractAddress: config.nftContractAddress || null,
+            if (
+              backgroundResult.status === 'confirmed' &&
+              backgroundResult.txHash &&
+              (intent === 'MINT_BADGE' || intent === 'CLAIM_CERT')
+            ) {
+              await patchMintedBadgeTxHash(transactionId, backgroundResult.txHash);
+            }
+
+            if (backgroundResult.status === 'confirmed') {
+              await updateTransactionLifecycle(transactionId, {
+                current_step: 'save',
+                status: 'confirmed',
               });
-
-              if (
-                backgroundResult.status === 'success' &&
-                backgroundResult.txHash &&
-                (intent === 'MINT_BADGE' || intent === 'CLAIM_CERT')
-              ) {
-                await patchMintedBadgeTxHash(transactionId, backgroundResult.txHash);
-              }
-
-              let asyncReply = reply;
-              if (backgroundResult.status === 'success' && backgroundResult.txHash) {
-                asyncReply = `${reply}\n\n✅ Transaction confirmed on Base Sepolia!\nTx Hash: \`${backgroundResult.txHash}\``;
-                logger.info(`UGF execution succeeded asynchronously`, {
-                  transactionId,
-                  txHash: backgroundResult.txHash,
-                  blockNumber: backgroundResult.blockNumber,
-                });
-              } else if (backgroundResult.status === 'failed') {
-                asyncReply = `${reply}\n\n⚠️ On-chain execution failed at step: **${backgroundResult.failureStep}**. Your request was saved and will retry when conditions allow.`;
-                logger.warn(`UGF execution failed asynchronously at step: ${backgroundResult.failureStep}`, {
-                  transactionId,
-                  message: backgroundResult.failureMessage,
-                });
-              }
-
-              if (assistantMessageId) {
-                await patchChatMessage(assistantMessageId, asyncReply);
-              }
+              executionStatus = 'confirmed';
+            } else if (backgroundResult.status === 'failed') {
+              executionStatus = 'failed';
+              failureReason = backgroundResult.failureMessage ?? 'Transaction failed';
             }
           } catch (err) {
             logger.error('Unhandled background UGF execution error', { transactionId, err });
+            await updateTransactionLifecycle(transactionId, {
+              status: 'failed',
+              failure_reason: err instanceof Error ? err.message : 'Unexpected execution error',
+            });
           }
         })();
       }
-      // ────────────────────────────────────────────────────────────────────────
 
       const response = {
         success: true,
@@ -992,23 +916,46 @@ router.post(
         confidence,
         tokenURI,
         gasEstimate:
-          intent !== 'UNKNOWN'
+          intent !== 'UNKNOWN' && liveGasQuote
             ? {
-              mockUSD: onChainResult?.gasFeeUSD ?? gasEstimate.mockUSD,
+              mockUSD: liveGasQuote.gasFeeUSD,
               currency: 'Mock USD',
-              breakdown: gasEstimate.breakdown,
-              note: gasEstimate.note,
+              breakdown: 'Live UGF quote.get()',
+              note: isUgfUserPayerMode()
+                ? 'Paid from your connected wallet (TYI Mock USD).'
+                : 'Paid in TYI Mock USD via UGF. No ETH required.',
+              chainName: getChainDisplayName(),
+              paymentCoin: 'TYI_USD',
+              sponsorStatus: 'vault_sponsor',
             }
-            : null,
+            : intent !== 'UNKNOWN' && isBlockchainIntent
+              ? {
+                mockUSD: 0,
+                currency: 'Mock USD',
+                breakdown: 'Awaiting live quote',
+                note: isUgfConfigured()
+                  ? 'Quote pending — poll transaction status'
+                  : 'UGF not configured — on-chain execution disabled',
+                chainName: getChainDisplayName(),
+                paymentCoin: 'TYI_USD',
+                sponsorStatus: null,
+              }
+              : null,
         aiSteps,
         transactionSteps,
         sessionId: effectiveSessionId,
         transactionId,
-        // On-chain execution fields
-        txHash: onChainResult?.txHash ?? null,
-        blockNumber: onChainResult?.blockNumber ?? null,
-        confirmedAt: onChainResult?.confirmedAt ?? null,
-        executionStatus: onChainResult?.status ?? 'skipped',
+        txHash: null,
+        blockNumber: null,
+        confirmedAt: null,
+        executionStatus,
+        failureReason,
+        ugfConfigured: ugfReady,
+        clientSettlementRequired,
+        ugfPayerAddress,
+        ugfQuote: ugfQuoteForClient,
+        ugfContractAddress,
+        ugfCalldata,
       };
 
       res.json(response);

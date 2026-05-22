@@ -42,7 +42,20 @@ CREATE TABLE transactions (
   contract_address TEXT,
   block_number BIGINT,
   created_at TIMESTAMP DEFAULT NOW(),
-  confirmed_at TIMESTAMP
+  confirmed_at TIMESTAMP,
+  explorer_url TEXT,
+  gas_used NUMERIC,
+  gas_price NUMERIC,
+  execution_time_ms BIGINT,
+  failure_reason TEXT,
+  current_step TEXT,
+  ugf_digest TEXT,
+  quote_response JSONB,
+  settlement_response JSONB,
+  receipt_json JSONB,
+  payment_coin TEXT DEFAULT 'TYI_USD',
+  sponsor_status TEXT,
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE minted_badges (

@@ -9,7 +9,11 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "check:ugf": "tsx scripts/check-ugf.ts",
+    "generate:signer": "tsx scripts/generate-signer.ts",
+    "signer:address": "tsx scripts/signer-address.ts",
+    "diagnose:ugf": "tsx scripts/diagnose-ugf-settlement.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -32,5 +36,9 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"
-  }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "types": "./dist/server.d.ts"
 }

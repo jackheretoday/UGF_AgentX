@@ -112,7 +112,6 @@ router.post(
 
     try {
       flowResult = await executeUgfFlow({
-        from: userAddress,
         to: contractAddress,
         data: calldata,
         value: '0',

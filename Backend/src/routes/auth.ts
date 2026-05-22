@@ -13,6 +13,8 @@ function formatUserResponse(user: Awaited<ReturnType<typeof ensureUser>>) {
   return {
     id: user.id,
     walletAddress: user.wallet_address,
+    displayName: user.username ?? null,
+    authType: (user.auth_type === 'google' ? 'google' : 'wallet') as 'google' | 'wallet',
     mockusdBalance: Number(user.mockusd_balance ?? 0),
     ethBalance: Number(user.eth_balance ?? 0),
     totalTransactions: Number(user.total_transactions ?? 0),
@@ -83,7 +85,12 @@ router.post(
 
     const user = await ensureUser(normalized);
     const token = jwt.sign(
-      { walletAddress: normalized, userId: user.id },
+      {
+        walletAddress: normalized,
+        userId: user.id,
+        authType: 'wallet',
+        name: user.username ?? undefined,
+      },
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -146,6 +153,7 @@ router.post(
         userId: user.id,
         authType: 'google',
         email: email,
+        name: name || user.username || email,
       },
       config.jwtSecret,
       { expiresIn: '7d' }

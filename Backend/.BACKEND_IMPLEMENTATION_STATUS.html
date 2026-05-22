@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>UGF AgentX — Backend Implementation Status</title>
+  <style>
+@page { margin: 18mm 16mm; size: A4; }
+* { box-sizing: border-box; }
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.45;
+  color: #1a1a1a;
+  margin: 0;
+  padding: 0 4mm;
+}
+h1 { font-size: 20pt; border-bottom: 2px solid #2563eb; padding-bottom: 6px; margin-top: 0; }
+h2 {
+  font-size: 14pt;
+  color: #1e40af;
+  margin-top: 1.4em;
+  page-break-after: avoid;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 4px;
+}
+h3 { font-size: 11.5pt; margin-top: 1em; page-break-after: avoid; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0 1em;
+  font-size: 9pt;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 1px solid #94a3b8;
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: #eff6ff; font-weight: 600; }
+tr:nth-child(even) td { background: #f8fafc; }
+code {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 8.5pt;
+  background: #f1f5f9;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+pre {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 7.5pt;
+  page-break-inside: avoid;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+pre code { background: none; padding: 0; }
+.diagram-note {
+  font-size: 8pt;
+  font-weight: 600;
+  color: #1e40af;
+  margin: 0.8em 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5em 0; }
+</style>
+</head>
+<body>
+<h1>UGF AgentX — Backend Implementation Status</h1>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Scope</strong></td>
+<td>Backend only (<code>/Backend</code>)</td>
+</tr>
+<tr>
+<td><strong>Reference</strong></td>
+<td><code>UGF_AgentX_Hackathon_Plan_260518_120803.pdf</code></td>
+</tr>
+<tr>
+<td><strong>Last updated</strong></td>
+<td>May 19, 2026</td>
+</tr>
+<tr>
+<td><strong>Source of truth</strong></td>
+<td><code>Backend/src/</code> + <code>server.ts</code> route mounting</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Table of Contents</h2>
+<ol>
+<li><a href="#executive-summary">Executive Summary</a></li>
+<li><a href="#status-legend">Status Legend</a></li>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#tech-stack">Tech Stack</a></li>
+<li><a href="#api-endpoints">API Endpoints</a></li>
+<li><a href="#implemented-detail">Implemented (Detail)</a></li>
+<li><a href="#partially-implemented">Partially Implemented</a></li>
+<li><a href="#remaining-work-detail">Remaining Work (Detail)</a></li>
+<li><a href="#database-schema">Database Schema</a></li>
+<li><a href="#environment-variables">Environment Variables</a></li>
+<li><a href="#frontend--backend-integration">Frontend ↔ Backend Integration</a></li>
+<li><a href="#judge-demo-checklist">Judge Demo Checklist</a></li>
+<li><a href="#file-inventory">File Inventory</a></li>
+<li><a href="#quick-start">Quick Start</a></li>
+</ol>
+<hr />
+<h2>Executive Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Progress</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Server &amp; middleware</strong></td>
+<td><strong>100%</strong></td>
+<td>Express, CORS, logging, global errors</td>
+</tr>
+<tr>
+<td><strong>Wallet auth (JWT)</strong></td>
+<td><strong>95%</strong></td>
+<td>Nonce + signature + Bearer on protected routes</td>
+</tr>
+<tr>
+<td><strong>Chat &amp; intent</strong></td>
+<td><strong>95%</strong></td>
+<td>Rule parser + Gemini fallback + persistence</td>
+</tr>
+<tr>
+<td><strong>Chat sessions API</strong></td>
+<td><strong>100%</strong></td>
+<td>List, history, delete, auto-title on first message</td>
+</tr>
+<tr>
+<td><strong>Timeline steps in chat</strong></td>
+<td><strong>100%</strong></td>
+<td><code>aiSteps</code> + <code>transactionSteps</code> via <code>responseEngine.ts</code></td>
+</tr>
+<tr>
+<td><strong>Transaction / gallery / wallet APIs</strong></td>
+<td><strong>90%</strong></td>
+<td>CRUD + reads; some routes lack auth</td>
+</tr>
+<tr>
+<td><strong>UGF on-chain execution</strong></td>
+<td><strong>75%</strong></td>
+<td>Live in <code>src/</code>; needs env, contract, E2E demo</td>
+</tr>
+<tr>
+<td><strong>Smart contract in repo</strong></td>
+<td><strong>0%</strong></td>
+<td>No Solidity / deployed ABI checked in</td>
+</tr>
+<tr>
+<td><strong>Production hardening</strong></td>
+<td><strong>40%</strong></td>
+<td>No Zod, partial env validation</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Overall backend readiness:</strong> ~<strong>78%</strong> for hackathon MVP (chat + auth + DB strong; on-chain path code-complete but ops-dependent).</p>
+<h3>What works today</h3>
+<ul>
+<li>Wallet login: <code>POST /api/auth/nonce</code> → sign → <code>POST /api/auth/verify</code> → JWT</li>
+<li>Authenticated chat: intent, reply, gas estimate (mock formula), Base64 <code>tokenURI</code>, timeline steps</li>
+<li>Session sidebar: <code>GET /api/chat/sessions</code>, <code>GET /api/chat/history/:id</code>, <code>DELETE /api/chat/sessions/:id</code></li>
+<li>Transaction history, NFT gallery, wallet summary (DB-backed)</li>
+<li><code>POST /api/ugf/execute</code> — full quote → settle → execute → poll (when env + contract configured)</li>
+</ul>
+<h3>What still blocks a polished judge demo</h3>
+<ul>
+<li>ERC721 contract source + verified <code>NFT_CONTRACT_ADDRESS</code> on Base Sepolia</li>
+<li>UGF credentials (<code>UGF_API_KEY</code>, signer key matching user wallet or demo wallet funded)</li>
+<li>Chat gas estimate still <strong>formula-based</strong>, not live UGF <code>quote.get()</code> preview</li>
+<li>Updating the <strong>same</strong> <code>transactions</code> row from chat → UGF execute (today chat creates <code>pending</code>, UGF may insert another row)</li>
+<li>On-chain ETH / Mock USD balance sync to <code>users</code> table</li>
+<li><code>analytics</code> table unused; <code>intentParser.ts</code> legacy file unused</li>
+</ul>
+<hr />
+<h2>Status Legend</h2>
+<table>
+<thead>
+<tr>
+<th>Icon</th>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>✅</td>
+<td><strong>Done</strong></td>
+<td>Implemented in active <code>src/</code> and mounted</td>
+</tr>
+<tr>
+<td>⚠️</td>
+<td><strong>Partial</strong></td>
+<td>Works with limits, mock data, or not fully wired E2E</td>
+</tr>
+<tr>
+<td>❌</td>
+<td><strong>Missing</strong></td>
+<td>Not implemented or not used</td>
+</tr>
+<tr>
+<td>🔒</td>
+<td><strong>Auth</strong></td>
+<td>Requires <code>Authorization: Bearer &lt;jwt&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Architecture</h2>
+<h3>System context</h3>
+<p>UGF AgentX uses a <strong>standalone Express API</strong> (port 5000), not Next.js API routes. The Vite/React frontend calls this API with a JWT after wallet signature login. Supabase (Postgres) is the system of record for users, chats, transactions, and badges. On-chain actions go through <strong>UGF testnet SDK</strong> (<code>@tychilabs/ugf-testnet-js</code>) on <strong>Base Sepolia</strong>, targeting an ERC721-style contract via <code>mintBadge</code> / <code>donate</code> calldata.</p>
+<h3>High-level diagram</h3>
+<p class="diagram-note">Architecture diagram (Mermaid source)</p>
+
+<pre><code>flowchart TB
+    subgraph Client[&quot;Frontend (Vite + React)&quot;]
+        UI[Chat / Sidebar / Wallet Panel]
+        W3[Wagmi + ConnectKit]
+        Auth[WalletAuthSync — sign nonce]
+    end
+
+    subgraph API[&quot;Backend — Express :5000&quot;]
+        S[server.ts]
+        H[health.ts]
+        A[auth.ts]
+        C[chat.ts]
+        T[transaction.ts]
+        U[ugf.ts]
+        AM[authMiddleware]
+        S --&gt; H
+        S --&gt; A
+        S --&gt; C
+        S --&gt; T
+        S --&gt; U
+        C --&gt; AM
+        T --&gt; AM
+        U --&gt; AM
+    end
+
+    subgraph Services[&quot;Services layer&quot;]
+        RE[responseEngine.ts]
+        UGF[ugfService.ts]
+        US[userService.ts]
+        NS[nonceStore.ts]
+        C --&gt; RE
+        U --&gt; UGF
+        A --&gt; US
+        A --&gt; NS
+    end
+
+    subgraph External[&quot;External&quot;]
+        GEM[Gemini API]
+        SB[(Supabase)]
+        UGFAPI[UGF Cloud API]
+        RPC[Base Sepolia RPC]
+        SC[NFT Contract]
+    end
+
+    UI --&gt; Auth
+    Auth --&gt; A
+    UI --&gt;|Bearer JWT| C
+    UI --&gt;|Bearer JWT| T
+    UI --&gt;|Bearer JWT| U
+    C --&gt; GEM
+    C --&gt; SB
+    T --&gt; SB
+    U --&gt; UGF
+    UGF --&gt; UGFAPI
+    UGF --&gt; RPC
+    UGF --&gt; SC
+</code></pre>
+<h3>Layer responsibilities</h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Files</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>HTTP</strong></td>
+<td><code>server.ts</code>, <code>routes/*</code></td>
+<td>Routing, request validation (minimal), JSON responses</td>
+</tr>
+<tr>
+<td><strong>Auth</strong></td>
+<td><code>auth.ts</code>, <code>authMiddleware.ts</code>, <code>nonceStore.ts</code></td>
+<td>Wallet nonce, viem <code>verifyMessage</code>, JWT issue/verify</td>
+</tr>
+<tr>
+<td><strong>Chat</strong></td>
+<td><code>routes/chat.ts</code></td>
+<td>Intent parse, Gemini fallback, session/message CRUD, metadata, mock gas</td>
+</tr>
+<tr>
+<td><strong>Timeline</strong></td>
+<td><code>services/responseEngine.ts</code></td>
+<td>Per-intent <code>aiSteps</code> + <code>transactionSteps</code> templates</td>
+</tr>
+<tr>
+<td><strong>Chain</strong></td>
+<td><code>routes/ugf.ts</code>, <code>services/ugfService.ts</code></td>
+<td>Calldata build, UGF quote/settle/execute, status poll</td>
+</tr>
+<tr>
+<td><strong>Data</strong></td>
+<td><code>config/supabase.ts</code>, <code>services/userService.ts</code></td>
+<td>Supabase admin client, user upsert</td>
+</tr>
+<tr>
+<td><strong>Cross-cutting</strong></td>
+<td><code>middleware/cors.ts</code>, <code>errorHandler.ts</code>, <code>logger.ts</code></td>
+<td>CORS, <code>AppError</code>, request logs</td>
+</tr>
+</tbody>
+</table>
+<h3>Wallet authentication flow</h3>
+<p class="diagram-note">Architecture diagram (Mermaid source)</p>
+
+<pre><code>sequenceDiagram
+    participant FE as Frontend
+    participant Auth as /api/auth/*
+    participant DB as Supabase
+
+    FE-&gt;&gt;Auth: POST /auth/nonce { walletAddress }
+    Auth--&gt;&gt;FE: nonce message (UUID-based)
+    FE-&gt;&gt;FE: wallet.signMessage(nonce)
+    FE-&gt;&gt;Auth: POST /auth/verify { walletAddress, signature }
+    Auth-&gt;&gt;Auth: verifyMessage (viem)
+    Auth-&gt;&gt;DB: ensureUser(wallet)
+    Auth--&gt;&gt;FE: JWT (7d) + user profile
+    Note over FE: apiFetch adds Authorization Bearer
+</code></pre>
+<h3>Chat message flow (implemented)</h3>
+<p class="diagram-note">Architecture diagram (Mermaid source)</p>
+
+<pre><code>sequenceDiagram
+    participant FE as Frontend
+    participant Chat as POST /api/chat
+    participant RE as responseEngine
+    participant DB as Supabase
+    participant AI as Gemini
+
+    FE-&gt;&gt;Chat: Bearer JWT + { sessionId?, message }
+    Chat-&gt;&gt;Chat: ensureSession (title from 1st message)
+    Chat-&gt;&gt;DB: insert user message
+    Chat-&gt;&gt;Chat: ruleBasedParse()
+    alt intent === UNKNOWN
+        Chat-&gt;&gt;AI: JSON classify (model chain + retries)
+        AI--&gt;&gt;Chat: intent, recipient, amount, reply
+    end
+    Chat-&gt;&gt;RE: getStepsForIntent(intent)
+    Chat-&gt;&gt;Chat: buildTokenURI, buildGasEstimate (mock)
+    Chat-&gt;&gt;DB: ai_actions, transactions (pending), minted_badges?
+    Chat-&gt;&gt;DB: insert assistant message
+    Chat--&gt;&gt;FE: reply, intent, tokenURI, gasEstimate, aiSteps, transactionSteps, sessionId, transactionId
+</code></pre>
+<h3>Chat sessions sidebar flow (implemented)</h3>
+<p class="diagram-note">Architecture diagram (Mermaid source)</p>
+
+<pre><code>sequenceDiagram
+    participant FE as Frontend
+    participant API as /api/chat/sessions
+    participant Hist as /api/chat/history/:id
+    participant DB as Supabase
+
+    FE-&gt;&gt;API: GET /chat/sessions?walletAddress=
+    API-&gt;&gt;DB: chat_sessions (max 50, by updated_at)
+    API-&gt;&gt;DB: message counts + title fallback from first user msg
+    API--&gt;&gt;FE: sessions[]
+
+    FE-&gt;&gt;Hist: GET /chat/history/:sessionId
+    API-&gt;&gt;DB: assertSessionOwner
+    Hist--&gt;&gt;FE: messages[]
+
+    FE-&gt;&gt;API: DELETE /chat/sessions/:id
+    API-&gt;&gt;DB: delete messages + session
+</code></pre>
+<h3>UGF execution flow (implemented in code; ops-dependent)</h3>
+<p class="diagram-note">Architecture diagram (Mermaid source)</p>
+
+<pre><code>sequenceDiagram
+    participant FE as Frontend
+    participant UGF as POST /api/ugf/execute
+    participant SVC as ugfService
+    participant SDK as UGF SDK
+    participant DB as Supabase
+    participant Chain as Base Sepolia
+
+    FE-&gt;&gt;UGF: Bearer JWT + intent, userWallet, tokenURI, sessionId, ...
+    UGF-&gt;&gt;UGF: encodeFunctionData (mintBadge | donate)
+    UGF-&gt;&gt;SVC: executeUgfFlow({ from, to, data })
+    SVC-&gt;&gt;SDK: auth.login(signer)
+    SVC-&gt;&gt;SDK: quote.get (TYI Mock USD)
+    SVC-&gt;&gt;SDK: vault.payAndSubmit | x402.execute
+    SVC-&gt;&gt;SDK: chains.evm.sponsorAndExecute
+    SVC-&gt;&gt;SDK: poll status (30s)
+    SDK-&gt;&gt;Chain: sponsored tx
+  Chain--&gt;&gt;SDK: txHash
+    UGF-&gt;&gt;DB: insert transactions + minted_badges (on success)
+    UGF--&gt;&gt;FE: success + txHash | failure + step
+</code></pre>
+<h3>PDF vs actual architecture</h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Hackathon PDF</th>
+<th>Actual backend</th>
+<th>Match</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API host</td>
+<td>Next.js API routes</td>
+<td>Express 4 @ :5000</td>
+<td>⚠️ Different host, same REST shape</td>
+</tr>
+<tr>
+<td>Auth</td>
+<td>Wallet connect</td>
+<td>Nonce + signature + JWT</td>
+<td>✅ Stronger than PDF</td>
+</tr>
+<tr>
+<td>Intent</td>
+<td>Rule-based</td>
+<td>Rule + Gemini JSON fallback</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>AI provider</td>
+<td>OpenAI</td>
+<td>Google Gemini</td>
+<td>⚠️ Equivalent role</td>
+</tr>
+<tr>
+<td>Database</td>
+<td>Supabase</td>
+<td>Supabase service role</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Gasless tx</td>
+<td>UGF SDK</td>
+<td><code>ugfService.ts</code> + route mounted</td>
+<td>✅ Code ready</td>
+</tr>
+<tr>
+<td>Contract</td>
+<td>Solidity ERC721</td>
+<td>External address only</td>
+<td>❌ Not in repo</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Tech Stack</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+<th>Status</th>
+<th>Used in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Runtime</td>
+<td>Node.js (ESM)</td>
+<td>✅</td>
+<td><code>server.ts</code></td>
+</tr>
+<tr>
+<td>Framework</td>
+<td>Express 4</td>
+<td>✅</td>
+<td>All routes</td>
+</tr>
+<tr>
+<td>Language</td>
+<td>TypeScript ~5.8</td>
+<td>✅</td>
+<td><code>src/</code></td>
+</tr>
+<tr>
+<td>Database</td>
+<td>Supabase (Postgres)</td>
+<td>✅</td>
+<td>All persistence</td>
+</tr>
+<tr>
+<td>AI</td>
+<td><code>@google/generative-ai</code></td>
+<td>✅</td>
+<td><code>chat.ts</code></td>
+</tr>
+<tr>
+<td>Auth</td>
+<td><code>jsonwebtoken</code>, <code>viem</code></td>
+<td>✅</td>
+<td><code>auth.ts</code>, middleware</td>
+</tr>
+<tr>
+<td>Blockchain</td>
+<td><code>@tychilabs/ugf-testnet-js</code></td>
+<td>✅</td>
+<td><code>ugfService.ts</code></td>
+</tr>
+<tr>
+<td>Blockchain</td>
+<td><code>viem</code></td>
+<td>✅</td>
+<td>Auth verify, UGF calldata</td>
+</tr>
+<tr>
+<td>Blockchain</td>
+<td><code>ethers</code> Wallet</td>
+<td>✅</td>
+<td>UGF signer in <code>ugfService.ts</code></td>
+</tr>
+<tr>
+<td>Validation</td>
+<td>Zod</td>
+<td>❌</td>
+<td>In package.json, unused</td>
+</tr>
+<tr>
+<td>Legacy</td>
+<td><code>openai</code></td>
+<td>❌</td>
+<td>Not imported</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>API Endpoints</h2>
+<h3>Public</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/health</code></td>
+<td>Liveness <code>{ status: "ok" }</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/auth/nonce</code></td>
+<td>Issue sign-in message for wallet</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/auth/verify</code></td>
+<td>Verify signature, return JWT + user</td>
+</tr>
+</tbody>
+</table>
+<h3>Protected (🔒 <code>Authorization: Bearer &lt;token&gt;</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/chat</code></td>
+<td>Parse message, persist, return reply + steps + metadata</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/chat/sessions?walletAddress=</code></td>
+<td>List sessions (50 max), titles, message counts</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/chat/sessions/:sessionId</code></td>
+<td>Delete session + all messages (owner only)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/chat/history/:sessionId</code></td>
+<td>Messages oldest → newest (owner only)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/transaction</code></td>
+<td>Create transaction row manually</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/transactions/:walletAddress</code></td>
+<td>Transaction history for wallet</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/gallery/:walletAddress</code></td>
+<td>Minted badges / NFT metadata</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/wallet?walletAddress=</code></td>
+<td>User row (balances from DB)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/ugf/execute</code></td>
+<td>UGF quote → settle → execute on-chain</td>
+</tr>
+</tbody>
+</table>
+<h3>Unauthenticated (gap)</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Issue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/transaction/history/:sessionId</code></td>
+<td>No JWT; only checks session exists</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Implemented (Detail)</h2>
+<h3>1. Server foundation — ✅ 100%</h3>
+<ul>
+<li>Express bootstrap, JSON body parser, URL-encoded support</li>
+<li>CORS from <code>FRONTEND_URL</code> (comma-separated origins)</li>
+<li>Per-request logging (<code>METHOD path</code>)</li>
+<li>Global <code>errorHandler</code> with <code>AppError</code> (400/403/500)</li>
+<li>404 JSON for unknown routes</li>
+<li><code>validateConfig()</code> warns on missing Gemini / Supabase keys (non-fatal)</li>
+</ul>
+<h3>2. Wallet authentication — ✅ 95%</h3>
+<p><strong>Files:</strong> <code>routes/auth.ts</code>, <code>middleware/authMiddleware.ts</code>, <code>services/nonceStore.ts</code>, <code>services/userService.ts</code></p>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nonce</td>
+<td><code>POST /api/auth/nonce</code> — validates address (viem <code>isAddress</code>), stores in-memory nonce</td>
+</tr>
+<tr>
+<td>Verify</td>
+<td><code>POST /api/auth/verify</code> — <code>verifyMessage</code>, creates/loads user in <code>users</code></td>
+</tr>
+<tr>
+<td>JWT</td>
+<td>7-day token: <code>{ walletAddress, userId }</code> signed with <code>JWT_SECRET</code></td>
+</tr>
+<tr>
+<td>Middleware</td>
+<td><code>authMiddleware</code> on chat, transaction, ugf routes</td>
+</tr>
+<tr>
+<td>Wallet match</td>
+<td><code>assertWalletAccess</code> — query/path wallet must match JWT address</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Not done:</strong> refresh tokens, nonce persistence across server restarts (in-memory only), rate limiting.</p>
+<h3>3. Chat API — ✅ 95%</h3>
+<p><strong>File:</strong> <code>routes/chat.ts</code> (~890 lines)</p>
+<h4>Intents</h4>
+<table>
+<thead>
+<tr>
+<th>Intent</th>
+<th>Triggers</th>
+<th>Action type in DB</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MINT_BADGE</code></td>
+<td>mint, badge</td>
+<td><code>mint_badge</code></td>
+</tr>
+<tr>
+<td><code>CLAIM_CERT</code></td>
+<td>claim, certificate, cert</td>
+<td><code>claim_cert</code></td>
+</tr>
+<tr>
+<td><code>DONATE</code></td>
+<td>donate, donation, contribute</td>
+<td><code>donate</code></td>
+</tr>
+<tr>
+<td><code>SEND_REWARD</code></td>
+<td>reward, tip, bonus</td>
+<td><code>send_reward</code></td>
+</tr>
+<tr>
+<td><code>UNKNOWN</code></td>
+<td>—</td>
+<td>Gemini fallback or help reply</td>
+</tr>
+</tbody>
+</table>
+<h4>Entity extraction</h4>
+<ul>
+<li>ETH address: <code>0x</code> + 40 hex</li>
+<li>Name recipient: <code>for|to|recipient &lt;name&gt;</code></li>
+<li>Amount: number before USD / USDC / Mock USD</li>
+</ul>
+<h4>Session lifecycle</h4>
+<ul>
+<li><code>ensureSession()</code> — creates UUID session or reuses valid <code>sessionId</code></li>
+<li><strong>Auto-title:</strong> first message → <code>deriveSessionTitle()</code> (40 chars + <code>...</code>)</li>
+<li>Upsert updates <code>updated_at</code> on each message</li>
+<li>Owner checks via <code>assertSessionOwner()</code> on history/delete</li>
+</ul>
+<h4><code>POST /api/chat</code> response fields</h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>reply</code></td>
+<td>Rule template or Gemini</td>
+</tr>
+<tr>
+<td><code>intent</code>, <code>recipient</code>, <code>amount</code>, <code>confidence</code></td>
+<td>Parser</td>
+</tr>
+<tr>
+<td><code>tokenURI</code></td>
+<td>Base64 JSON + SVG (<code>buildTokenURI</code>) for mint/claim</td>
+</tr>
+<tr>
+<td><code>gasEstimate</code></td>
+<td><strong>Mock formula</strong> (<code>buildGasEstimate</code>) — not UGF quote API</td>
+</tr>
+<tr>
+<td><code>aiSteps</code>, <code>transactionSteps</code></td>
+<td><code>getStepsForIntent()</code></td>
+</tr>
+<tr>
+<td><code>sessionId</code>, <code>transactionId</code></td>
+<td>DB inserts</td>
+</tr>
+</tbody>
+</table>
+<h4>Persistence pipeline</h4>
+<ol>
+<li>Ensure session (+ title if new)</li>
+<li>Insert <code>chat_messages</code> (user)</li>
+<li>Parse intent (rules → Gemini if UNKNOWN)</li>
+<li>Insert <code>ai_actions</code></li>
+<li>Insert <code>transactions</code> (status <code>pending</code>)</li>
+<li>Insert <code>minted_badges</code> if <code>MINT_BADGE</code></li>
+<li>Insert <code>chat_messages</code> (assistant)</li>
+</ol>
+<h3>4. Chat sessions API — ✅ 100%</h3>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/chat/sessions</code></td>
+<td>Max 50 sessions, <code>updated_at DESC</code>, <code>messageCount</code>, title fallback from first user message</td>
+</tr>
+<tr>
+<td><code>GET /api/chat/history/:sessionId</code></td>
+<td>Full thread, ownership enforced</td>
+</tr>
+<tr>
+<td><code>DELETE /api/chat/sessions/:sessionId</code></td>
+<td>Cascading delete messages then session</td>
+</tr>
+</tbody>
+</table>
+<h3>5. Transaction timeline — ✅ 100%</h3>
+<p><strong>File:</strong> <code>services/responseEngine.ts</code></p>
+<ul>
+<li>Per-intent flows: <code>MINT_BADGE</code>, <code>CLAIM_CERT</code>, <code>DONATE</code>, <code>SEND_REWARD</code>, <code>UNKNOWN</code></li>
+<li><code>aiSteps</code>: timed assistant narration for chat UI</li>
+<li><code>transactionSteps</code>: UGF pipeline labels (quote, settle, execute, confirm, save)</li>
+<li>Returned on every successful <code>POST /api/chat</code> (non-UNKNOWN gets full tx steps)</li>
+</ul>
+<h3>6. Gemini AI fallback — ✅ ~90%</h3>
+<ul>
+<li>JSON mode + brace-extraction fallback</li>
+<li>Model chain: <code>GEMINI_MODEL</code> env → gemini-2.0-flash → 1.5-flash-latest → 1.5-pro</li>
+<li>Retries on 429/5xx (<code>GEMINI_MAX_RETRIES</code>, <code>GEMINI_RETRY_DELAY_MS</code>)</li>
+<li>Skips cleanly if no API key</li>
+<li>Confidence: <code>rule-based</code> | <code>GeminiAI</code> | <code>failed</code></li>
+</ul>
+<h3>7. NFT metadata (off-chain) — ✅ 90%</h3>
+<ul>
+<li>SVG badge/certificate in <code>buildSvg()</code></li>
+<li><code>data:application/json;base64,...</code> token URI</li>
+<li>Traits: Type, Recipient, Issued By, Network (Base Sepolia)</li>
+</ul>
+<h3>8. Transaction, gallery, wallet APIs — ✅ 90%</h3>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /api/transaction</code></td>
+<td>Manual tx row create</td>
+</tr>
+<tr>
+<td><code>GET /api/transactions/:walletAddress</code></td>
+<td>Wallet tx history</td>
+</tr>
+<tr>
+<td><code>GET /api/gallery/:walletAddress</code></td>
+<td><code>minted_badges</code> list</td>
+</tr>
+<tr>
+<td><code>GET /api/wallet</code></td>
+<td>User profile + DB balances</td>
+</tr>
+</tbody>
+</table>
+<h3>9. UGF on-chain execution — ✅ 75% (code complete)</h3>
+<p><strong>Files:</strong> <code>routes/ugf.ts</code>, <code>services/ugfService.ts</code></p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Implementation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quote</td>
+<td><code>client.quote.get</code> with TYI Mock USD on Base Sepolia</td>
+</tr>
+<tr>
+<td>Settle</td>
+<td><code>vault.payAndSubmit</code> or <code>x402.execute</code> by payment mode</td>
+</tr>
+<tr>
+<td>Execute</td>
+<td><code>client.chains.evm.sponsorAndExecute</code></td>
+</tr>
+<tr>
+<td>Confirm</td>
+<td>Poll <code>client.status.get</code> up to 30s</td>
+</tr>
+<tr>
+<td>Calldata</td>
+<td><code>mintBadge(to, tokenURI)</code> or <code>donate(to, amount)</code> via viem</td>
+</tr>
+<tr>
+<td>DB</td>
+<td>Inserts <code>transactions</code> + <code>minted_badges</code> on success; partial failure JSON on step errors</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Requires env:</strong> <code>UGF_API_KEY</code>, <code>UGF_SIGNER_PRIVATE_KEY</code> (must match <code>userWallet</code> or demo fails), <code>NFT_CONTRACT_ADDRESS</code>, <code>BASE_SEPOLIA_RPC_URL</code>.</p>
+<h3>10. Supabase schema usage — ✅ ~90%</h3>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Used</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>users</code></td>
+<td>✅ Auth, wallet API</td>
+</tr>
+<tr>
+<td><code>chat_sessions</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>chat_messages</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>transactions</code></td>
+<td>✅ Chat + UGF</td>
+</tr>
+<tr>
+<td><code>minted_badges</code></td>
+<td>✅ Chat + UGF</td>
+</tr>
+<tr>
+<td><code>ai_actions</code></td>
+<td>✅ Audit log</td>
+</tr>
+<tr>
+<td><code>analytics</code></td>
+<td>❌ Never written</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Partially Implemented</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What exists</th>
+<th>What's missing</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>UGF end-to-end demo</strong></td>
+<td>Full <code>executeUgfFlow</code> in <code>src/</code></td>
+<td>Contract deploy, API keys, signer = user wallet, frontend calls on confirm</td>
+</tr>
+<tr>
+<td><strong>Gas estimate in chat</strong></td>
+<td>Mock USD formula</td>
+<td>Real <code>quote.get()</code> preview + store <code>ugf_quote_id</code> on chat tx</td>
+</tr>
+<tr>
+<td><strong>Transaction lifecycle</strong></td>
+<td>Chat creates <code>pending</code> row</td>
+<td><code>PATCH</code> to update same row after UGF; link <code>transactionId</code> in execute body</td>
+</tr>
+<tr>
+<td><strong>Wallet balances</strong></td>
+<td>Columns on <code>users</code></td>
+<td>No RPC sync; UI shows DB defaults</td>
+</tr>
+<tr>
+<td><strong>UGF execute vs chat tx</strong></td>
+<td>Both insert transactions</td>
+<td>Should update chat's <code>transactionId</code> instead of duplicate rows</td>
+</tr>
+<tr>
+<td><strong>Session tx history route</strong></td>
+<td><code>GET /api/transaction/history/:sessionId</code></td>
+<td>No auth middleware</td>
+</tr>
+<tr>
+<td><strong>Env documentation</strong></td>
+<td><code>.env.example</code> partial</td>
+<td>UGF + contract vars not in example file</td>
+</tr>
+<tr>
+<td><strong>Request validation</strong></td>
+<td>Ad-hoc checks</td>
+<td>No Zod schemas</td>
+</tr>
+<tr>
+<td><strong>Legacy <code>intentParser.ts</code></strong></td>
+<td>Old swap/history intents</td>
+<td>Unused; should delete or merge</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Remaining Work (Detail)</h2>
+<h3>Critical — blocks live on-chain demo</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Task</th>
+<th>Detail</th>
+<th>Effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C1</td>
+<td><strong>Deploy ERC721 contract</strong></td>
+<td><code>mintBadge(address,string)</code> (+ <code>donate</code> if needed) on Base Sepolia</td>
+<td>High</td>
+</tr>
+<tr>
+<td>C2</td>
+<td><strong>Document / add contract to repo</strong></td>
+<td><code>contracts/</code>, ABI JSON, address in <code>.env</code></td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>C3</td>
+<td><strong>UGF environment setup</strong></td>
+<td><code>UGF_API_KEY</code>, <code>UGF_SIGNER_PRIVATE_KEY</code>, fund Mock USD vault</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>C4</td>
+<td><strong>E2E UGF test</strong></td>
+<td>curl or frontend → <code>POST /api/ugf/execute</code> → real <code>tx_hash</code></td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>C5</td>
+<td><strong>Signer = user wallet</strong></td>
+<td>Today backend signs with server key; must match connected wallet or use user signing flow</td>
+<td>High</td>
+</tr>
+</tbody>
+</table>
+<h3>High — demo quality &amp; PDF alignment</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Task</th>
+<th>Detail</th>
+<th>Effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H1</td>
+<td><strong>UGF gas quote in chat</strong></td>
+<td>Call <code>quote.get()</code> for preview; fallback to mock; save <code>ugf_quote_id</code></td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>H2</td>
+<td><strong>Update transaction on execute</strong></td>
+<td>Accept <code>transactionId</code> from chat in <code>ugf/execute</code>; PATCH status/tx_hash/block</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>H3</td>
+<td><strong>Auth on tx history by session</strong></td>
+<td>Add <code>authMiddleware</code> + owner check to <code>GET /api/transaction/history/:sessionId</code></td>
+<td>Trivial</td>
+</tr>
+<tr>
+<td>H4</td>
+<td><strong>Extend <code>.env.example</code></strong></td>
+<td>UGF, RPC, contract, Gemini optional vars</td>
+<td>Trivial</td>
+</tr>
+<tr>
+<td>H5</td>
+<td><strong>Frontend UGF execute wiring</strong></td>
+<td>Call <code>executeUgfTransaction</code> after user confirms timeline (if not already)</td>
+<td>Medium</td>
+</tr>
+</tbody>
+</table>
+<h3>Medium — polish</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Task</th>
+<th>Detail</th>
+<th>Effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>M1</td>
+<td><strong>Wallet balance sync</strong></td>
+<td><code>POST /api/wallet/sync</code> via viem <code>getBalance</code> + UGF vault read</td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>M2</td>
+<td><strong>User counters</strong></td>
+<td>Increment <code>total_transactions</code>, <code>total_nfts</code> on confirmed tx</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>M3</td>
+<td><strong>Analytics table</strong></td>
+<td>Write events; optional dashboard endpoint</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>M4</td>
+<td><strong>Nonce store persistence</strong></td>
+<td>Redis or Supabase for multi-instance / restart safety</td>
+<td>Medium</td>
+</tr>
+</tbody>
+</table>
+<h3>Low — hardening</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Task</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L1</td>
+<td>Zod schemas for all POST bodies and query params</td>
+<td></td>
+</tr>
+<tr>
+<td>L2</td>
+<td>Remove dead <code>intentParser.ts</code>, align <code>types/index.ts</code></td>
+<td></td>
+</tr>
+<tr>
+<td>L3</td>
+<td>Stricter <code>validateConfig()</code> — fail fast in production without secrets</td>
+<td></td>
+</tr>
+<tr>
+<td>L4</td>
+<td>OpenAI provider option (optional; Gemini sufficient)</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Database Schema</h2>
+<p><strong>Reference:</strong> <code>supabase/schema.sql</code> (if present in repo)</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Purpose</th>
+<th>Backend usage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>users</code></td>
+<td>Wallet identity, mockusd/eth balances, counters</td>
+<td>Auth, wallet API</td>
+</tr>
+<tr>
+<td><code>chat_sessions</code></td>
+<td>Per-user threads, <code>title</code>, timestamps</td>
+<td>Chat + sessions API</td>
+</tr>
+<tr>
+<td><code>chat_messages</code></td>
+<td><code>user</code> / <code>assistant</code> messages</td>
+<td>Chat + history</td>
+</tr>
+<tr>
+<td><code>transactions</code></td>
+<td>Action log, UGF fields, status</td>
+<td>Chat (pending), UGF (confirmed)</td>
+</tr>
+<tr>
+<td><code>minted_badges</code></td>
+<td>NFT metadata, <code>tx_hash</code></td>
+<td>Chat + gallery</td>
+</tr>
+<tr>
+<td><code>ai_actions</code></td>
+<td>Parser audit (intent, confidence)</td>
+<td>Chat</td>
+</tr>
+<tr>
+<td><code>analytics</code></td>
+<td>Aggregates</td>
+<td>Not used</td>
+</tr>
+</tbody>
+</table>
+<h3><code>transactions</code> column population</h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Chat (<code>POST /chat</code>)</th>
+<th>UGF (<code>POST /ugf/execute</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>action_type</code></td>
+<td>✅ From intent</td>
+<td>✅ From intent</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>✅ <code>pending</code></td>
+<td>✅ success/failed/pending</td>
+</tr>
+<tr>
+<td><code>tx_hash</code></td>
+<td>❌ null</td>
+<td>✅ when confirmed</td>
+</tr>
+<tr>
+<td><code>ugf_quote_id</code></td>
+<td>❌</td>
+<td>✅ quote digest</td>
+</tr>
+<tr>
+<td><code>gas_fee_mockusd</code></td>
+<td>✅ mock estimate</td>
+<td>✅ from UGF quote</td>
+</tr>
+<tr>
+<td><code>block_number</code>, <code>confirmed_at</code></td>
+<td>❌</td>
+<td>✅ on success</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Environment Variables</h2>
+<h3>Documented in <code>Backend/.env.example</code></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Required</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PORT</code></td>
+<td>No</td>
+<td>Server port (default 5000)</td>
+</tr>
+<tr>
+<td><code>NODE_ENV</code></td>
+<td>No</td>
+<td>Environment</td>
+</tr>
+<tr>
+<td><code>GEMINI_API_KEY</code></td>
+<td>Yes*</td>
+<td>AI fallback</td>
+</tr>
+<tr>
+<td><code>SUPABASE_URL</code> / keys</td>
+<td>Yes*</td>
+<td>Database</td>
+</tr>
+<tr>
+<td><code>JWT_SECRET</code></td>
+<td>Yes (prod)</td>
+<td>Wallet JWT</td>
+</tr>
+<tr>
+<td><code>FRONTEND_URL</code></td>
+<td>No</td>
+<td>CORS</td>
+</tr>
+</tbody>
+</table>
+<p>*Warn-only at startup if missing.</p>
+<h3>Required for UGF execute (add to <code>.env</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>UGF_API_KEY</code></td>
+<td>UGF SDK authentication</td>
+</tr>
+<tr>
+<td><code>UGF_SIGNER_PRIVATE_KEY</code></td>
+<td>Must match <code>userWallet</code> passed to execute</td>
+</tr>
+<tr>
+<td><code>BASE_SEPOLIA_RPC_URL</code></td>
+<td>Default <code>https://sepolia.base.org</code></td>
+</tr>
+<tr>
+<td><code>NFT_CONTRACT_ADDRESS</code></td>
+<td>Target contract for calldata</td>
+</tr>
+</tbody>
+</table>
+<h3>Optional</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GEMINI_MODEL</code></td>
+<td>Override default model chain</td>
+</tr>
+<tr>
+<td><code>GEMINI_MAX_RETRIES</code></td>
+<td>Retry count (default 2)</td>
+</tr>
+<tr>
+<td><code>GEMINI_RETRY_DELAY_MS</code></td>
+<td>Backoff (default 600ms)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Frontend ↔ Backend Integration</h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Backend</th>
+<th>Frontend (<code>src/</code>)</th>
+<th>Wired</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Wallet auth</td>
+<td>✅</td>
+<td><code>WalletAuthSync</code>, <code>authStorage</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>POST /api/chat</code></td>
+<td>✅</td>
+<td><code>api.ts</code> + Bearer</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Chat sessions sidebar</td>
+<td>✅</td>
+<td><code>fetchChatSessions</code>, <code>PreviousChats</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Load session history</td>
+<td>✅</td>
+<td><code>loadSessionHistory</code>, <code>loadSession</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Delete session</td>
+<td>✅</td>
+<td><code>deleteChatSession</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Transaction history panel</td>
+<td>✅</td>
+<td><code>GET /api/transactions/:wallet</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>aiSteps</code> / <code>transactionSteps</code></td>
+<td>✅</td>
+<td><code>useStore</code> simulation</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>POST /api/ugf/execute</code></td>
+<td>✅</td>
+<td><code>executeUgfTransaction</code> in api.ts</td>
+<td>⚠️ Verify UX trigger</td>
+</tr>
+<tr>
+<td>Gallery API</td>
+<td>✅</td>
+<td>Partial / mock NFTs in wallet</td>
+<td>⚠️</td>
+</tr>
+<tr>
+<td>Wallet balance sync</td>
+<td>❌</td>
+<td>Shows DB <code>eth_balance</code></td>
+<td>❌</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Judge Demo Checklist</h2>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Demo action</th>
+<th>Backend ready?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Connect wallet</td>
+<td>✅</td>
+<td>JWT auth</td>
+</tr>
+<tr>
+<td>2</td>
+<td>See ETH / Mock USD</td>
+<td>⚠️</td>
+<td>DB values unless manually set</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Type mint command</td>
+<td>✅</td>
+<td>Authenticated chat</td>
+</tr>
+<tr>
+<td>4</td>
+<td>See AI + timeline</td>
+<td>✅</td>
+<td>Steps in response</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Previous chats sidebar</td>
+<td>✅</td>
+<td>Sessions API</td>
+</tr>
+<tr>
+<td>6</td>
+<td>UGF pays gas (Mock USD)</td>
+<td>⚠️</td>
+<td>Needs C1–C5</td>
+</tr>
+<tr>
+<td>7</td>
+<td>NFT on-chain + gallery</td>
+<td>⚠️</td>
+<td>DB badge on chat; chain needs UGF</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Minimum demo (chat-only):</strong> Auth + chat + sessions — <strong>ready now</strong>.</p>
+<p><strong>Full Web3 demo:</strong> Requires contract + UGF env + execute path tested once.</p>
+<hr />
+<h2>File Inventory</h2>
+<h3>Active <code>src/</code></h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Status</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server.ts</code></td>
+<td>✅</td>
+<td>Mounts health, auth, chat, transaction, ugf</td>
+</tr>
+<tr>
+<td><code>routes/health.ts</code></td>
+<td>✅</td>
+<td>Health check</td>
+</tr>
+<tr>
+<td><code>routes/auth.ts</code></td>
+<td>✅</td>
+<td>Nonce + verify</td>
+</tr>
+<tr>
+<td><code>routes/chat.ts</code></td>
+<td>✅</td>
+<td>Chat, sessions, history, delete</td>
+</tr>
+<tr>
+<td><code>routes/transaction.ts</code></td>
+<td>✅</td>
+<td>Tx, gallery, wallet</td>
+</tr>
+<tr>
+<td><code>routes/ugf.ts</code></td>
+<td>✅</td>
+<td>UGF execute</td>
+</tr>
+<tr>
+<td><code>middleware/authMiddleware.ts</code></td>
+<td>✅</td>
+<td>JWT + wallet access</td>
+</tr>
+<tr>
+<td><code>middleware/cors.ts</code></td>
+<td>✅</td>
+<td>CORS</td>
+</tr>
+<tr>
+<td><code>middleware/errorHandler.ts</code></td>
+<td>✅</td>
+<td>Errors</td>
+</tr>
+<tr>
+<td><code>services/responseEngine.ts</code></td>
+<td>✅</td>
+<td>Timeline steps</td>
+</tr>
+<tr>
+<td><code>services/ugfService.ts</code></td>
+<td>✅</td>
+<td>UGF SDK flow</td>
+</tr>
+<tr>
+<td><code>services/userService.ts</code></td>
+<td>✅</td>
+<td>User CRUD</td>
+</tr>
+<tr>
+<td><code>services/nonceStore.ts</code></td>
+<td>✅</td>
+<td>In-memory nonces</td>
+</tr>
+<tr>
+<td><code>services/intentParser.ts</code></td>
+<td>🧊</td>
+<td>Legacy, unused</td>
+</tr>
+<tr>
+<td><code>config/env.ts</code></td>
+<td>✅</td>
+<td>Config</td>
+</tr>
+<tr>
+<td><code>config/supabase.ts</code></td>
+<td>✅</td>
+<td>Admin client</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Quick Start</h2>
+<pre><code class="language-bash">cd Backend
+cp .env.example .env
+# Set: GEMINI_API_KEY, SUPABASE_*, JWT_SECRET
+# For UGF: UGF_API_KEY, UGF_SIGNER_PRIVATE_KEY, NFT_CONTRACT_ADDRESS
+
+npm install
+npm run dev
+# → http://localhost:5000
+</code></pre>
+<h3>Health</h3>
+<pre><code class="language-bash">curl -s http://localhost:5000/health | jq
+</code></pre>
+<h3>Auth + chat (typical frontend flow)</h3>
+<ol>
+<li><code>POST /api/auth/nonce</code> with <code>{ "walletAddress": "0x..." }</code></li>
+<li>Sign returned <code>nonce</code> in wallet</li>
+<li><code>POST /api/auth/verify</code> with <code>{ "walletAddress", "signature" }</code></li>
+<li><code>POST /api/chat</code> with header <code>Authorization: Bearer &lt;token&gt;</code> and body <code>{ "message": "Mint badge for Jay", "sessionId": "&lt;optional-uuid&gt;" }</code></li>
+</ol>
+<pre><code class="language-bash"># Example (replace TOKEN):
+curl -s -X POST http://localhost:5000/api/chat \
+  -H &quot;Content-Type: application/json&quot; \
+  -H &quot;Authorization: Bearer TOKEN&quot; \
+  -d '{&quot;message&quot;:&quot;Mint badge for Jay&quot;}' | jq
+</code></pre>
+<h3>List sessions</h3>
+<pre><code class="language-bash">curl -s &quot;http://localhost:5000/api/chat/sessions?walletAddress=0x...&quot; \
+  -H &quot;Authorization: Bearer TOKEN&quot; | jq
+</code></pre>
+<hr />
+<p><strong>UGF AgentX Backend</strong> · Implementation status<br />
+<em>Reflects <code>Backend/src/</code> as of May 19, 2026</em></p>
+</body>
+</html>

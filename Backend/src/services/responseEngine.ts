@@ -30,10 +30,12 @@ const MINT_BADGE_FLOW = {
     { message: 'Submitting to Base Sepolia via UGF...', delayMs: 600 },
   ],
   transactionSteps: [
+    { id: 'pending', label: 'Initializing transaction', status: 'pending' as const },
     { id: 'quote', label: 'Getting UGF gas quote', status: 'pending' as const },
     { id: 'settle', label: 'Settling Mock USD payment', status: 'pending' as const },
-    { id: 'execute', label: 'Executing mint on Base Sepolia', status: 'pending' as const },
-    { id: 'confirm', label: 'Confirming transaction', status: 'pending' as const },
+    { id: 'execute', label: 'Executing on Base Sepolia', status: 'pending' as const },
+    { id: 'mining', label: 'Mining on Base Sepolia', status: 'pending' as const },
+    { id: 'confirm', label: 'Verifying receipt', status: 'pending' as const },
     { id: 'save', label: 'Saving badge to gallery', status: 'pending' as const },
   ],
 };
@@ -45,10 +47,12 @@ const CLAIM_CERT_FLOW = {
     { message: 'Submitting to blockchain...', delayMs: 600 },
   ],
   transactionSteps: [
+    { id: 'pending', label: 'Initializing transaction', status: 'pending' as const },
     { id: 'quote', label: 'Getting UGF gas quote', status: 'pending' as const },
     { id: 'settle', label: 'Settling Mock USD payment', status: 'pending' as const },
     { id: 'execute', label: 'Executing claim on Base Sepolia', status: 'pending' as const },
-    { id: 'confirm', label: 'Confirming transaction', status: 'pending' as const },
+    { id: 'mining', label: 'Mining on Base Sepolia', status: 'pending' as const },
+    { id: 'confirm', label: 'Verifying receipt', status: 'pending' as const },
     { id: 'save', label: 'Saving certificate to gallery', status: 'pending' as const },
   ],
 };
@@ -60,10 +64,12 @@ const DONATE_FLOW = {
     { message: 'Routing donation via UGF...', delayMs: 500 },
   ],
   transactionSteps: [
+    { id: 'pending', label: 'Initializing transaction', status: 'pending' as const },
     { id: 'quote', label: 'Getting UGF gas quote', status: 'pending' as const },
     { id: 'settle', label: 'Settling Mock USD payment', status: 'pending' as const },
     { id: 'execute', label: 'Sending donation', status: 'pending' as const },
-    { id: 'confirm', label: 'Confirming on-chain', status: 'pending' as const },
+    { id: 'mining', label: 'Mining on Base Sepolia', status: 'pending' as const },
+    { id: 'confirm', label: 'Verifying receipt', status: 'pending' as const },
   ],
 };
 
@@ -74,10 +80,12 @@ const SEND_REWARD_FLOW = {
     { message: 'Submitting reward to Base Sepolia...', delayMs: 600 },
   ],
   transactionSteps: [
+    { id: 'pending', label: 'Initializing transaction', status: 'pending' as const },
     { id: 'quote', label: 'Getting UGF gas quote', status: 'pending' as const },
     { id: 'settle', label: 'Settling Mock USD payment', status: 'pending' as const },
     { id: 'execute', label: 'Sending reward', status: 'pending' as const },
-    { id: 'confirm', label: 'Confirming transaction', status: 'pending' as const },
+    { id: 'mining', label: 'Mining on Base Sepolia', status: 'pending' as const },
+    { id: 'confirm', label: 'Verifying receipt', status: 'pending' as const },
     { id: 'save', label: 'Saving to records', status: 'pending' as const },
   ],
 };
@@ -119,23 +127,3 @@ export function getStepsForIntent(intent: string): {
   }
 }
 
-// ─── Helpers (reserved for UGF execution wiring) ───────────────────────────────
-
-export function generateMockTxHash(): string {
-  const hex = () => Math.floor(Math.random() * 16).toString(16);
-  return '0x' + Array.from({ length: 64 }, hex).join('');
-}
-
-export function generateBlockNumber(): number {
-  return Math.floor(18_000_000 + Math.random() * 500_000);
-}
-
-export function generateMockGasCost(): {
-  gasUsedGwei: string;
-  mockUsdCost: string;
-} {
-  return {
-    gasUsedGwei: (Math.random() * 0.003 + 0.001).toFixed(6),
-    mockUsdCost: (Math.random() * 0.15 + 0.05).toFixed(4),
-  };
-}
